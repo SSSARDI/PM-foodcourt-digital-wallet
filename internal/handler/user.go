@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"pmfoodcourt/internal/model"
@@ -33,8 +32,8 @@ func (h *UserHandler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) get(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
-	if err != nil {
+	id := parseID(r)
+	if id == "" {
 		jsonError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
@@ -61,8 +60,8 @@ func (h *UserHandler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) delete(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
-	if err != nil {
+	id := parseID(r)
+	if id == "" {
 		jsonError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
@@ -73,9 +72,10 @@ func (h *UserHandler) delete(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"message": "deleted"})
 }
 
-// ── helpers ────────────────────────────────────────────
-func parseID(r *http.Request) (int64, error) {
-	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+// ── helpers ────────────────────────────────────────────────────
+// parseID เปลี่ยนจาก int64 → string เพราะ ID เป็น UUID
+func parseID(r *http.Request) string {
+	return chi.URLParam(r, "id")
 }
 
 func jsonOK(w http.ResponseWriter, data any) {
