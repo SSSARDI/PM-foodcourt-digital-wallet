@@ -1,36 +1,16 @@
-version: "3.8"
-
 services:
-  # --- ส่วนของ Database ---
   db:
     image: mysql:8.0
     container_name: foodcourt-db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: "1234"
       MYSQL_DATABASE: foodcourt
+      MYSQL_ROOT_PASSWORD: "1234"
     ports:
       - "3306:3306"
     volumes:
       - ./pkg/database/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
       - mysql_data:/var/lib/mysql
-
-  backend:
-    build: .
-    container_name: foodcourt-backend
-    restart: always
-    ports:
-      - "8080:8080"
-    environment:
-      - DB_USER=root
-      - DB_PASSWORD=1234
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_NAME=foodcourt
-      - PORT=8080
-      - ENV=development
-    depends_on:
-      - db
 
 volumes:
   mysql_data:
