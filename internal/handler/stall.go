@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	appMiddleware "pmfoodcourt/internal/middleware"
 	"pmfoodcourt/internal/model"
 	"pmfoodcourt/internal/service"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type StallHandler struct {
@@ -35,10 +36,12 @@ func (h *StallHandler) Routes() chi.Router {
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.RequireRole("VENDOR", "ADMIN"))
-			r.Get("/my",         h.myStalls)
-			r.Post("/",          h.create)
-			r.Patch("/{id}",     h.update)
-			r.Delete("/{id}",    h.delete)
+			r.Get("/summary", h.getSummary)
+			r.Get("/my", h.myStalls)
+			r.Get("/my", h.myStalls)
+			r.Post("/", h.create)
+			r.Patch("/{id}", h.update)
+			r.Delete("/{id}", h.delete)
 			r.Get("/{id}/sales", h.saleHistory)
 		})
 	})
@@ -127,4 +130,27 @@ func (h *StallHandler) saleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, sales)
+}
+
+func (h *StallHandler) getSummary(w http.ResponseWriter, r *http.Request) {
+	userID := appMiddleware.GetUserID(r.Context())
+
+	// 1. หา StallID ของป้าจงก่อน
+	stalls, err := h.svc.MyStalls(r.Context(), userID)
+	if err != nil || len(stalls) == 0 {
+		jsonError(w, http.StatusNotFound, "stall not found")
+		return
+	}
+
+	// 2. ดึงสรุปยอดจาก Service (ฟังก์ชันที่เราเพิ่ม GetDailySummary เข้าไป)
+	total, count, err := h.svc.GetDailySummary(r.Context(), stalls[0].ID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonOK(w, map[string]interface{}{
+		"today_sales": total,
+		"order_count": count,
+	})
 }

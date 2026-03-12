@@ -5,21 +5,35 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
+	appMiddleware "pmfoodcourt/internal/middleware"
 	"pmfoodcourt/internal/model"
 	"pmfoodcourt/internal/service"
+
+	"github.com/go-chi/chi/v5"
 )
 
-type AuthHandler struct{ svc *service.AuthService }
+type AuthHandler struct {
+	svc       *service.AuthService
+	jwtSecret string
+}
 
-func NewAuthHandler(svc *service.AuthService) *AuthHandler { return &AuthHandler{svc} }
+func NewAuthHandler(svc *service.AuthService, jwtSecret string) *AuthHandler {
+	return &AuthHandler{svc, jwtSecret}
+}
 
 func (h *AuthHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Post("/register",        h.register)
-	r.Post("/login",           h.login)
+	r.Post("/register", h.register)
+	r.Post("/login", h.login)
 	r.Post("/forgot-password", h.forgotPassword)
-	r.Post("/reset-password",  h.resetPassword)
+	r.Post("/reset-password", h.resetPassword)
+
+	r.Group(func(r chi.Router) {
+		// 🚩 ใช้ h.jwtSecret ที่เราเก็บไว้ใน struct
+		r.Use(appMiddleware.Auth(h.jwtSecret))
+		r.Get("/me", h.getMe)
+	})
+
 	return r
 }
 
@@ -99,4 +113,15 @@ func (h *AuthHandler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]string{"message": "password updated"})
+}
+
+func (h *AuthHandler) getMe(w http.ResponseWriter, r *http.Request) {
+	userID := appMiddleware.GetUserID(r.Context())
+	// ไปดึงข้อมูล User จาก Service (ที่รวมยอดเงิน balance มาแล้ว)
+	user, err := h.svc.GetByID(r.Context(), userID)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	jsonOK(w, map[string]interface{}{"user": user})
 }

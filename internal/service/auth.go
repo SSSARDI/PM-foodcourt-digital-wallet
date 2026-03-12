@@ -26,10 +26,21 @@ type AuthService struct {
 	repo       *repository.AuthRepository
 	walletRepo *repository.WalletRepository
 	jwtSecret  string
+	userRepo   *repository.UserRepository   // 🚩 เพิ่มบรรทัดนี้ (ต้องมีดอกจันถ้าใน main ใช้ NewUserRepo)
 }
 
-func NewAuthService(repo *repository.AuthRepository, walletRepo *repository.WalletRepository, secret string) *AuthService {
-	return &AuthService{repo, walletRepo, secret}
+func NewAuthService(
+    repo *repository.AuthRepository, 
+    userRepo *repository.UserRepository, 
+    walletRepo *repository.WalletRepository, 
+    secret string,
+) *AuthService {
+    return &AuthService{
+        repo:       repo,
+        userRepo:   userRepo,
+        walletRepo: walletRepo,
+        jwtSecret:  secret, 
+    }
 }
 
 func (s *AuthService) Register(ctx context.Context, req model.RegisterRequest) (*model.AuthResponse, error) {
@@ -172,4 +183,22 @@ func (s *AuthService) makeToken(u *model.User) (string, error) {
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.jwtSecret))
+}
+
+func (s *AuthService) GetByID(ctx context.Context, id string) (*model.User, error) {
+    // เรียกใช้ userRepo ที่เราเพิ่งเพิ่มเข้าไปใน NewAuthService เมื่อกี้
+    u, err := s.userRepo.GetByID(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+    if u == nil {
+        return nil, errors.New("user not found")
+    }
+
+    // 🚩 ถ้าต้องการดึงยอดเงิน balance มาโชว์ด้วย (ตามคอมเมนต์ในรูป)
+    // ให้เรียก walletRepo มาดึง balance ต่อตรงนี้ได้เลยครับ
+    balance, _ := s.walletRepo.GetBalance(ctx, u.ID)
+    u.Balance = balance // มั่นใจว่าใน model.User มี field นี้
+
+    return u, nil
 }

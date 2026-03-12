@@ -41,8 +41,21 @@ func (r *UserRepository) GetAll(ctx context.Context) ([]model.User, error) {
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*model.User, error) {
 	u := &model.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, full_name, email, phone, password_hash, role, status, created_at
+		`SELECT id, full_name, email, phone, password_hash, role, status, created_at 
 		 FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.PasswordHash, &u.Role, &u.Status, &u.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return u, err
+}
+
+func (r *UserRepository) GetByPhone(ctx context.Context, phone string) (*model.User, error) {
+	u := &model.User{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, full_name, email, phone, password_hash, role, status, created_at
+         FROM users WHERE phone = ?`, phone,
 	).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone,
 		&u.PasswordHash, &u.Role, &u.Status, &u.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -95,6 +108,14 @@ func (r *UserRepository) UpdateStatus(ctx context.Context, id, status string) er
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE users SET status = ? WHERE id = ?`,
 		status, id,
+	)
+	return err
+}
+
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID string, newHash string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ? WHERE id = ?`,
+		newHash, userID,
 	)
 	return err
 }

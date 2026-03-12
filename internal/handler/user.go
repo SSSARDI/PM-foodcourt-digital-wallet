@@ -4,14 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
+	"pmfoodcourt/internal/middleware"
 	"pmfoodcourt/internal/model"
 	"pmfoodcourt/internal/service"
+
+	"github.com/go-chi/chi/v5"
 )
 
-type UserHandler struct{ svc *service.UserService }
+type UserHandler struct {
+	svc       *service.UserService
+	jwtSecret string
+}
 
-func NewUserHandler(svc *service.UserService) *UserHandler { return &UserHandler{svc} }
+func NewUserHandler(svc *service.UserService, secret string) *UserHandler {
+	return &UserHandler{svc: svc, jwtSecret: secret}
+}
 
 func (h *UserHandler) Routes() chi.Router {
 	r := chi.NewRouter()
@@ -19,6 +26,13 @@ func (h *UserHandler) Routes() chi.Router {
 	r.Post("/", h.create)
 	r.Get("/{id}", h.get)
 	r.Delete("/{id}", h.delete)
+	r.Get("/search", h.SearchByPhone)
+
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(h.jwtSecret))
+		r.Post("/change-password", h.changePassword)
+	})
+
 	return r
 }
 
@@ -72,19 +86,40 @@ func (h *UserHandler) delete(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"message": "deleted"})
 }
 
+func (h *UserHandler) changePassword(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	var req model.ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "ข้อมูลไม่ถูกต้อง")
+		return
+	}
+
+	if err := h.svc.ChangePassword(r.Context(), userID, req); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonOK(w, map[string]string{"message": "เปลี่ยนรหัสผ่านสำเร็จ"})
+}
+
+func (h *UserHandler) SearchByPhone(w http.ResponseWriter, r *http.Request) {
+	phone := r.URL.Query().Get("phone")
+
+	if phone == "" {
+		jsonError(w, http.StatusBadRequest, "phone required")
+		return
+	}
+
+	user, err := h.svc.GetByPhone(r.Context(), phone)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	jsonOK(w, user)
+}
+
 // ── helpers ────────────────────────────────────────────────────
-// parseID เปลี่ยนจาก int64 → string เพราะ ID เป็น UUID
+
 func parseID(r *http.Request) string {
 	return chi.URLParam(r, "id")
-}
-
-func jsonOK(w http.ResponseWriter, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
-}
-
-func jsonError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

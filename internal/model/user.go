@@ -11,6 +11,7 @@ type User struct {
 	Role         string    `json:"role"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
+	Balance      float64   `json:"balance"`
 }
 
 type CreateUserRequest struct {
@@ -49,6 +50,11 @@ type ResetPasswordRequest struct {
 	Password string `json:"password"`
 }
 
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
 type Wallet struct {
 	ID        string    `json:"id"`
 	PublicID  string    `json:"public_id"`
@@ -78,13 +84,16 @@ type PayStallRequest struct {
 }
 
 type PayQRRequest struct {
-	QRToken string `json:"qr_token"`
+	QRToken string  `json:"qr_token"`
+	Amount  float64 `json:"amount"`
 }
 
 type FoodStall struct {
 	ID        string    `json:"id"`
 	StallName string    `json:"stall_name"`
 	OwnerID   string    `json:"owner_id"`
+	OwnerName string    `json:"owner_name"`
+	Phone     string    `json:"phone"`
 	Category  *string   `json:"category,omitempty"`
 	Location  *string   `json:"location,omitempty"`
 	Status    string    `json:"status"`
@@ -102,12 +111,16 @@ type SaleTransaction struct {
 
 type CreateStallRequest struct {
 	StallName string  `json:"stall_name"`
+	OwnerName string  `json:"owner_name"`
+	Phone     string  `json:"phone"`
 	Category  *string `json:"category"`
 	Location  *string `json:"location"`
 }
 
 type UpdateStallRequest struct {
 	StallName *string `json:"stall_name"`
+	OwnerName *string `json:"owner_name"`
+	Phone     *string `json:"phone"`
 	Category  *string `json:"category"`
 	Location  *string `json:"location"`
 	Status    *string `json:"status"`
@@ -134,8 +147,17 @@ type PendingCashRefund struct {
 	Amount      float64    `json:"amount"`
 	Status      string     `json:"status"`
 	InitiatedBy *string    `json:"initiated_by,omitempty"`
+	ApprovedBy  *string    `json:"approved_by,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type RefundRequest struct {
+	Amount float64 `json:"amount"`
+}
+
+type ConfirmRefundRequest struct {
+	RefundID string `json:"refund_id"`
 }
 
 type InitiateRefundRequest struct {

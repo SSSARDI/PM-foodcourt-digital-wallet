@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"pmfoodcourt/internal/model"
+	"time"
 )
 
 type WalletRepository struct{ db *sql.DB }
@@ -172,4 +173,91 @@ func (r *WalletRepository) scan(row *sql.Row) (*model.Wallet, error) {
 		return nil, nil
 	}
 	return w, err
+}
+
+func (r *WalletRepository) GetBalance(ctx context.Context, userID string) (float64, error) {
+	var balance float64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT balance FROM wallets WHERE user_id = ?`, userID,
+	).Scan(&balance)
+
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return balance, err
+}
+
+func (r *WalletRepository) WithdrawCash(ctx context.Context, walletID, txnID, staffID string, amount float64) (*model.Wallet, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// หักเงิน (เพิ่มเงื่อนไขเงินต้องพอ)
+	res, err := tx.ExecContext(ctx,
+		"UPDATE wallets SET balance = balance - ? WHERE id = ? AND balance >= ?",
+		amount, walletID, amount)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return nil, fmt.Errorf("insufficient balance")
+	}
+
+	// บันทึกประวัติ (ใช้ REFUND หรือ WITHDRAW_CASH ตามที่ DB รองรับ)
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO wallet_transactions (id, wallet_id, type, amount, created_by) VALUES (?, ?, 'REFUND', ?, ?)",
+		txnID, walletID, amount, staffID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, walletID)
+}
+
+func (r *WalletRepository) GetTransactionsByStaff(ctx context.Context, staffID string) ([]map[string]interface{}, error) {
+	// 🚩 ใช้ท่า CONVERT เพื่อเปลี่ยน ID ให้เป็นภาษาเดียวกันชั่วคราวตอน JOIN
+	query := `
+        SELECT 
+            t.id, t.type, t.amount, t.created_at, 
+            u.full_name AS customer_name 
+        FROM wallet_transactions t
+        JOIN wallets w ON CONVERT(t.wallet_id USING utf8mb4) = CONVERT(w.id USING utf8mb4)
+        JOIN users u ON CONVERT(w.user_id USING utf8mb4) = CONVERT(u.id USING utf8mb4)
+        WHERE CONVERT(t.created_by USING utf8mb4) = CONVERT(? USING utf8mb4)
+        ORDER BY t.created_at DESC
+    `
+	rows, err := r.db.QueryContext(ctx, query, staffID)
+	if err != nil {
+		fmt.Println("❌ Query Error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var id, tType, customerName string
+		var amount float64
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &tType, &amount, &createdAt, &customerName); err != nil {
+			fmt.Println("❌ Scan Error:", err)
+			return nil, err
+		}
+
+		results = append(results, map[string]interface{}{
+			"id":            id,
+			"type":          tType,
+			"amount":        amount,
+			"created_at":    createdAt,
+			"customer_name": customerName,
+		})
+	}
+	return results, nil
 }

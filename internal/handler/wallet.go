@@ -2,12 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-
-	"github.com/go-chi/chi/v5"
 	appMiddleware "pmfoodcourt/internal/middleware"
 	"pmfoodcourt/internal/model"
 	"pmfoodcourt/internal/service"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type WalletHandler struct {
@@ -23,17 +24,20 @@ func (h *WalletHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(appMiddleware.Auth(h.jwtSecret))
 
-	r.Get("/me",           h.getMyWallet)
+	r.Get("/me", h.getMyWallet)
 	r.Get("/transactions", h.getTransactions)
+	r.Post("/refund/bypass", h.bypassRefund)
+	r.Post("/refund/initiate", h.initiateRefund)
 
 	r.Group(func(r chi.Router) {
 		r.Use(appMiddleware.RequireRole("CUSTOMER"))
 		r.Post("/topup/qr", h.payQR)
-		r.Post("/pay",      h.payStall)
+		r.Post("/pay", h.payStall)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(appMiddleware.RequireRole("STAFF", "ADMIN"))
 		r.Post("/topup/cash", h.topUpCash)
+		r.Post("/refund/cash", h.refundCash)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(appMiddleware.RequireRole("VENDOR", "ADMIN"))
@@ -64,18 +68,25 @@ func (h *WalletHandler) getTransactions(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WalletHandler) topUpCash(w http.ResponseWriter, r *http.Request) {
+	// 🚩 ดึง ID พนักงานจริงๆ จาก Context (Middleware ทำไว้ให้แล้ว)
 	staffID := appMiddleware.GetUserID(r.Context())
-	var req model.TopUpCashRequest
+
+	var req struct {
+		Phone  string  `json:"phone"`
+		Amount float64 `json:"amount"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	wallet, err := h.svc.TopUpCash(r.Context(), staffID, req)
+
+	// 🚩 ส่ง staffID เข้าไปด้วย
+	err := h.svc.TopupByStaff(r.Context(), req.Phone, req.Amount, staffID)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	jsonOK(w, wallet)
+	jsonOK(w, map[string]string{"message": "success"})
 }
 
 func (h *WalletHandler) payQR(w http.ResponseWriter, r *http.Request) {
@@ -122,4 +133,64 @@ func (h *WalletHandler) createQR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(qr)
+}
+
+func (h *WalletHandler) refundCash(w http.ResponseWriter, r *http.Request) {
+	staffID := appMiddleware.GetUserID(r.Context())
+	var req struct {
+		Phone  string  `json:"phone"`
+		Amount float64 `json:"amount"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "ข้อมูล Request ไม่ถูกต้อง")
+		return
+	}
+
+	// 🚩 เรียกใช้ Service ที่เราทำไว้
+	err := h.svc.RefundByStaff(r.Context(), req.Phone, req.Amount, staffID)
+	if err != nil {
+		// พิมพ์ Error ออกมาดูใน Terminal ของ Go
+		fmt.Printf("❌ Refund Error: %v\n", err)
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonOK(w, map[string]string{"message": "Refund successful"})
+}
+
+func (h *WalletHandler) bypassRefund(w http.ResponseWriter, r *http.Request) {
+	userID := appMiddleware.GetUserID(r.Context())
+	var req struct {
+		Amount float64 `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	// เรียก Service ไป Bypass (หักเงินทันที)
+	err := h.svc.BypassRefund(r.Context(), userID, req.Amount)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonOK(w, map[string]string{"message": "Bypass successful"})
+}
+
+func (h *WalletHandler) initiateRefund(w http.ResponseWriter, r *http.Request) {
+	userID := appMiddleware.GetUserID(r.Context())
+	var req struct {
+		Amount float64 `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	fmt.Printf("📢 User %s ส่งคำร้องขอคืนเงินจำนวน %.2f (No Action Taken)\n", userID, req.Amount)
+
+	jsonOK(w, map[string]string{
+		"message": "ส่งคำร้องสำเร็จ! โปรดรับเงินสดที่เคาน์เตอร์",
+	})
 }

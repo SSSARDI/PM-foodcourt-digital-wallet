@@ -71,3 +71,7 @@ func (s *StallService) SaleHistory(ctx context.Context, stallID string) ([]model
 func (s *StallService) MySales(ctx context.Context, customerID string) ([]model.SaleTransaction, error) {
 	return s.repo.GetSalesByCustomer(ctx, customerID)
 }
+
+func (s *StallService) GetDailySummary(ctx context.Context, stallID string) (float64, int, error) {
+	return s.repo.GetDailySummary(ctx, stallID)
+}

@@ -30,20 +30,24 @@ func main() {
 	qrRepo := repository.NewQRRepo(db)
 	refundRepo := repository.NewRefundRepo(db)
 	gpvatRepo := repository.NewGpVatRepo(db)
+	paymentRepo := repository.NewPaymentRepo(db)
+	adminRepo := repository.NewAdminRepo(db)
 
 	// ── services ──────────────────────────────────────────────
-	userSvc := service.NewUserService(userRepo)
-	authSvc := service.NewAuthService(authRepo, walletRepo, cfg.JWTSecret)
-	walletSvc := service.NewWalletService(walletRepo, stallRepo, qrRepo)
+	userSvc := service.NewUserService(userRepo, walletRepo)
+	authSvc := service.NewAuthService(authRepo, userRepo, walletRepo, cfg.JWTSecret)
+	walletSvc := service.NewWalletService(walletRepo, stallRepo, qrRepo, userRepo)
 	stallSvc := service.NewStallService(stallRepo)
-	adminSvc := service.NewAdminService(userRepo, walletRepo, refundRepo, gpvatRepo)
+	adminSvc := service.NewAdminService(adminRepo, userRepo, walletRepo, refundRepo, gpvatRepo, db)
+	paymentSvc := service.NewPaymentService(db, paymentRepo)
 
 	// ── handlers ──────────────────────────────────────────────
-	userHandler := handler.NewUserHandler(userSvc)
-	authHandler := handler.NewAuthHandler(authSvc)
+	userHandler := handler.NewUserHandler(userSvc, cfg.JWTSecret)
+	authHandler := handler.NewAuthHandler(authSvc, cfg.JWTSecret)
 	walletHandler := handler.NewWalletHandler(walletSvc, cfg.JWTSecret)
 	stallHandler := handler.NewStallHandler(stallSvc, cfg.JWTSecret)
 	adminHandler := handler.NewAdminHandler(adminSvc, cfg.JWTSecret)
+	paymentHandler := handler.NewPaymentHandler(paymentSvc, cfg.JWTSecret)
 
 	// ── router ────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -61,6 +65,7 @@ func main() {
 	r.Mount("/api/v1/wallet", walletHandler.Routes())
 	r.Mount("/api/v1/stalls", stallHandler.Routes())
 	r.Mount("/api/v1/admin", adminHandler.Routes())
+	r.Mount("/api/v1/payments", paymentHandler.Routes())
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	log.Printf("🚀 running on http://localhost%s  [%s]", addr, cfg.Env)

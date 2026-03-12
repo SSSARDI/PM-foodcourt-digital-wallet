@@ -14,10 +14,21 @@ type WalletService struct {
 	walletRepo *repository.WalletRepository
 	stallRepo  *repository.StallRepository
 	qrRepo     *repository.QRRepository
+	userRepo   *repository.UserRepository // ✅ เพิ่มบรรทัดนี้เข้าไปเพื่อให้ข้างล่างเรียกใช้ได้
 }
 
-func NewWalletService(wr *repository.WalletRepository, sr *repository.StallRepository, qr *repository.QRRepository) *WalletService {
-	return &WalletService{wr, sr, qr}
+func NewWalletService(
+	repo *repository.WalletRepository,
+	stallRepo *repository.StallRepository,
+	qrRepo *repository.QRRepository,
+	userRepo *repository.UserRepository,
+) *WalletService {
+	return &WalletService{
+		walletRepo: repo, // ✅ เปลี่ยนจาก repo: เป็น walletRepo: ให้ตรงกับข้างบน
+		stallRepo:  stallRepo,
+		qrRepo:     qrRepo,
+		userRepo:   userRepo, // ✅ ตอนนี้จะไม่แดงแล้วเพราะข้างบนมี userRepo แล้ว
+	}
 }
 
 func (s *WalletService) GetMyWallet(ctx context.Context, userID string) (*model.Wallet, error) {
@@ -71,6 +82,19 @@ func (s *WalletService) CreateQR(ctx context.Context, req model.CreateQRRequest)
 }
 
 func (s *WalletService) PayQR(ctx context.Context, userID string, req model.PayQRRequest) (*model.Wallet, error) {
+	if req.QRToken == "BYPASS_TOKEN" {
+		// หา Wallet ของเราก่อน
+		w, err := s.walletRepo.GetByUserID(ctx, userID)
+		if err != nil || w == nil {
+			return nil, errors.New("wallet not found")
+		}
+
+		// สั่งเติมเงินเลยโดยไม่ต้องเช็คตาราง QR
+		txnID := uuid.New().String()
+		// เราใช้ "BYPASS_QR" เป็น ID อ้างอิงหลอกๆ ไว้ในระบบ
+		return s.walletRepo.TopUpQR(ctx, w.ID, txnID, "BYPASS_QR", req.Amount)
+	}
+
 	_ = s.qrRepo.ExpireStale(ctx)
 	qr, err := s.qrRepo.GetByToken(ctx, req.QRToken)
 	if err != nil {
@@ -116,4 +140,61 @@ func (s *WalletService) PayStall(ctx context.Context, customerID string, req mod
 		return nil, err
 	}
 	return &sale, nil
+}
+
+func (s *WalletService) TopupByStaff(ctx context.Context, phone string, amount float64, staffID string) error {
+	user, err := s.userRepo.GetByPhone(ctx, phone)
+	if err != nil || user == nil {
+		return errors.New("ไม่พบผู้ใช้งาน")
+	}
+
+	wallet, err := s.walletRepo.GetByUserID(ctx, user.ID)
+	if err != nil || wallet == nil {
+		return errors.New("ไม่พบกระเป๋าเงิน")
+	}
+
+	txnID := uuid.New().String()
+
+	// 🚩 ใช้ staffID ที่ส่งมาจาก Handler แทนคำว่า "STAFF_SYSTEM"
+	_, err = s.walletRepo.TopUpCash(ctx, wallet.ID, txnID, staffID, amount)
+	return err
+}
+
+func (s *WalletService) RefundByStaff(ctx context.Context, phone string, amount float64, staffID string) error {
+	user, err := s.userRepo.GetByPhone(ctx, phone)
+	if err != nil || user == nil {
+		return errors.New("ไม่พบผู้ใช้งาน")
+	}
+
+	wallet, err := s.walletRepo.GetByUserID(ctx, user.ID)
+	if err != nil || wallet == nil {
+		return errors.New("ไม่พบกระเป๋าเงิน")
+	}
+
+	// เช็คยอดเงินอีกรอบเพื่อความชัวร์
+	if wallet.Balance < amount {
+		return errors.New("ยอดเงินในกระเป๋าไม่เพียงพอ")
+	}
+
+	txnID := uuid.New().String()
+	_, err = s.walletRepo.WithdrawCash(ctx, wallet.ID, txnID, staffID, amount)
+	return err
+}
+
+func (s *WalletService) BypassRefund(ctx context.Context, userID string, amount float64) error {
+	w, err := s.walletRepo.GetByUserID(ctx, userID)
+	if err != nil || w == nil {
+		return errors.New("wallet not found")
+	}
+
+	if w.Balance < amount {
+		return errors.New("ยอดเงินไม่เพียงพอ")
+	}
+
+	txnID := uuid.New().String()
+
+	// 🚩 เปลี่ยนจาก "SYSTEM_BYPASS" เป็น userID (เจ้าของเครื่องที่กด)
+	// เพื่อให้ Database ตรวจสอบผ่านเพราะ User นี้มีตัวตนอยู่จริงในระบบ
+	_, err = s.walletRepo.WithdrawCash(ctx, w.ID, txnID, userID, amount)
+	return err
 }

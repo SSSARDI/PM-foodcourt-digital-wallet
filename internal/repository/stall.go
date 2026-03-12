@@ -140,3 +140,34 @@ func (r *StallRepository) querySales(ctx context.Context, query, arg string) ([]
 	}
 	return sales, rows.Err()
 }
+
+func (r *StallRepository) GetDailySummary(ctx context.Context, stallID string) (float64, int, error) {
+	var total float64
+	var count int
+
+	// 🚩 ใช้ DATE(created_at) = CURDATE() เพื่อให้ตรงกับข้อมูลที่เรา Mock ไว้
+	query := `
+		SELECT COALESCE(SUM(total_amount), 0), COUNT(*)
+		FROM sale_transactions
+		WHERE stall_id = ? AND DATE(created_at) = CURDATE()`
+
+	err := r.db.QueryRowContext(ctx, query, stallID).Scan(&total, &count)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return total, count, nil
+}
+
+func (r *StallRepository) GetMonthlySales(ctx context.Context, stallID string) (float64, error) {
+	var total float64
+	query := `
+		SELECT COALESCE(SUM(total_amount), 0)
+		FROM sale_transactions
+		WHERE stall_id = ? 
+		AND MONTH(created_at) = MONTH(CURRENT_DATE())
+		AND YEAR(created_at) = YEAR(CURRENT_DATE())`
+
+	err := r.db.QueryRowContext(ctx, query, stallID).Scan(&total)
+	return total, err
+}
