@@ -51,6 +51,8 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Post("/staff", h.createStaff)
 		r.Put("/staff/{id}", h.updateStaff)
 		r.Put("/change-password", h.changePassword)
+		r.Get("/stalls", h.listStalls)
+		r.Patch("/users/{id}/suspend", h.suspendUser)
 
 	})
 
@@ -358,4 +360,13 @@ func (h *AdminHandler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]string{"message": "password updated successfully"})
+}
+
+func (h *AdminHandler) listStalls(w http.ResponseWriter, r *http.Request) {
+	stalls, err := h.svc.ListStalls(r.Context()) // 🚩 ตรวจสอบชื่อฟังก์ชันใน AdminService ด้วยนะครับ
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, stalls)
 }

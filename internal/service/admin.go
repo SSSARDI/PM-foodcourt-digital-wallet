@@ -139,11 +139,14 @@ func (s *AdminService) GetStallRevenueReport(ctx context.Context, start, end str
             fs.stall_name, 
             fs.id, 
             COALESCE(fs.category, 'Uncategorized'),
-            COALESCE(SUM(st.total_amount), 0)
+            -- 🚩 เปลี่ยนมาดึงจาก sale_transactions และใช้ DATE() ครอบ
+            (SELECT COALESCE(SUM(total_amount), 0) 
+             FROM sale_transactions 
+             WHERE stall_id = fs.id 
+             AND DATE(created_at) BETWEEN ? AND ?) as revenue
         FROM food_stalls fs
-        LEFT JOIN sale_transactions st ON fs.id = st.stall_id AND DATE(st.created_at) BETWEEN ? AND ?
-        GROUP BY fs.id, fs.stall_name, fs.category
-        ORDER BY COALESCE(SUM(st.total_amount), 0) DESC
+        WHERE fs.id != 'SYSTEM-TOPUP'
+        ORDER BY revenue DESC
     `
 
 	rows, err := s.db.QueryContext(ctx, query, start, end)
@@ -277,4 +280,8 @@ func (s *AdminService) ChangeAdminPassword(ctx context.Context, id, oldPwd, newP
 
 	_, err = s.db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", string(newHashed), id)
 	return err
+}
+
+func (s *AdminService) ListStalls(ctx context.Context) ([]model.FoodStall, error) {
+	return s.adminRepo.GetAllStalls(ctx)
 }

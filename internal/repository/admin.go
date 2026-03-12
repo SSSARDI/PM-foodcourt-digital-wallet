@@ -167,17 +167,18 @@ func (r *AdminRepository) GetSummary(ctx context.Context, start, end string) (ma
 
 func (r *AdminRepository) GetStallReports(ctx context.Context, start, end string) ([]map[string]interface{}, error) {
 	query := `
-		SELECT 
-			s.id,
-			s.stall_name,
-			COALESCE(s.owner_name, 'Not Specified') as owner_name,
-			COALESCE(s.phone, 'No Phone Info') as phone,
-			COALESCE(s.category, 'General') as category,
-			s.status,
-			(SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE stall_id = s.id AND type = 'PAYMENT' AND DATE(created_at) BETWEEN ? AND ?) as daily_revenue
-		FROM food_stalls s
-		WHERE s.stall_name IS NOT NULL AND s.stall_name != '' AND s.id != 'SYSTEM-TOPUP'
-		GROUP BY s.id, s.stall_name, s.owner_name, s.phone, s.category, s.status`
+        SELECT 
+            s.id,
+            s.stall_name,
+            COALESCE(s.owner_name, 'Not Specified') as owner_name,
+            COALESCE(s.phone, 'No Phone Info') as phone,
+            COALESCE(s.category, 'General') as category,
+            s.status,
+            -- 🚩 เปลี่ยนมาดึงจาก sale_transactions แทน
+            (SELECT COALESCE(SUM(total_amount), 0) FROM sale_transactions WHERE stall_id = s.id AND DATE(created_at) BETWEEN ? AND ?) as daily_revenue
+        FROM food_stalls s
+        WHERE s.stall_name IS NOT NULL AND s.stall_name != '' AND s.id != 'SYSTEM-TOPUP'
+        GROUP BY s.id, s.stall_name, s.owner_name, s.phone, s.category, s.status`
 
 	rows, err := r.db.QueryContext(ctx, query, start, end)
 	if err != nil {
@@ -273,4 +274,33 @@ func (r *UserRepository) UpdateStaff(ctx context.Context, id string, name string
 	query := `UPDATE users SET full_name = ? WHERE id = ? AND role = 'STAFF'`
 	_, err := r.db.ExecContext(ctx, query, name, id)
 	return err
+}
+
+func (r *AdminRepository) GetAllStalls(ctx context.Context) ([]model.FoodStall, error) {
+	query := `SELECT id, stall_name, owner_id, COALESCE(owner_name, '') as owner_name, 
+                     COALESCE(phone, '') as phone, COALESCE(category, '') as category, 
+                     status, created_at 
+              FROM food_stalls 
+              WHERE id != 'SYSTEM-TOPUP'`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stalls []model.FoodStall
+	for rows.Next() {
+		var s model.FoodStall
+		// ต้อง Scan ให้ครบตามจำนวน Field ใน Model FoodStall นะครับ
+		if err := rows.Scan(&s.ID, &s.StallName, &s.OwnerID, &s.OwnerName, &s.Phone, &s.Category, &s.Status, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		stalls = append(stalls, s)
+	}
+
+	if stalls == nil {
+		stalls = []model.FoodStall{}
+	}
+	return stalls, nil
 }
